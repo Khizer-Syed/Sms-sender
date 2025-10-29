@@ -2,22 +2,36 @@ import openpyxl
 import subprocess
 import time
 import os
+from datetime import datetime
 
 # === CONFIG ===
-xlsx_file = "contacts.xlsx"
-image_path = "/Users/khizer/Desktop/image.jpg"
+xlsx_file = "Contacts.xlsx"                   # XLSX file in the same folder
+image_file = "image.png"                      # Relative image path
 message_template = "Hello {name}, this is a hardcoded message with an image!"
-log_file = "log.txt"
+log_file = "log.txt"                          # Log file in same folder
+delay_seconds = 2                             # Delay between messages
+
+# === Resolve relative paths ===
+base_dir = os.path.dirname(os.path.abspath(__file__))
+xlsx_path = os.path.join(base_dir, xlsx_file)
+image_path = os.path.join(base_dir, image_file)
+log_path = os.path.join(base_dir, log_file)
+
+if not os.path.exists(xlsx_path):
+    raise FileNotFoundError(f"XLSX file not found: {xlsx_path}")
 
 if not os.path.exists(image_path):
-    raise FileNotFoundError(f"Image not found: {image_path}")
+    print(f"⚠️ Warning: Image not found at {image_path}. Will still send texts (SMS fallback will ignore images).")
 
-wb = openpyxl.load_workbook(xlsx_file)
+# === Load Excel file ===
+wb = openpyxl.load_workbook(xlsx_path)
 sheet = wb.active
 
-with open(log_file, "w") as log:
+# === Open log file ===
+with open(log_path, "w") as log:
     log.write("iMessage/SMS Sending Log\n")
-    log.write("========================\n")
+    log.write(f"Started at: {datetime.now()}\n")
+    log.write("========================\n\n")
 
     for row in sheet.iter_rows(min_row=2, values_only=True):
         phone_number, name = row
@@ -33,7 +47,7 @@ with open(log_file, "w") as log:
                 set targetService to 1st service whose service type = iMessage
                 set targetBuddy to buddy "{phone_number}" of targetService
                 send "{message_text}" to targetBuddy
-                send POSIX file "{image_path}" to targetBuddy
+                {'send POSIX file "' + image_path + '" to targetBuddy' if os.path.exists(image_path) else ''}
             end tell
         on error errMsg
             error errMsg
@@ -46,28 +60,10 @@ with open(log_file, "w") as log:
         )
 
         if result.returncode == 0:
-            log.write(f"✅ SENT via iMessage: {phone_number}\n")
+            log.write(f"[{datetime.now()}] ✅ SENT via iMessage: {phone_number}\n")
         else:
-            log.write(f"⚠️ iMessage failed for {phone_number}, trying SMS...\n")
+            log.write(f"[{datetime.now()}] ⚠️ iMessage failed for {phone_number}, trying SMS...\n")
+        log.flush()  # ensure logs are written
+        time.sleep(delay_seconds)
 
-            # Step 2: Try SMS (no image support)
-            apple_script_sms = f'''
-            tell application "Messages"
-                set targetService to 1st service whose service type = SMS
-                set targetBuddy to buddy "{phone_number}" of targetService
-                send "{message_text}" to targetBuddy
-            end tell
-            '''
-            sms_result = subprocess.run(
-                ["osascript", "-e", apple_script_sms],
-                capture_output=True, text=True
-            )
-
-            if sms_result.returncode == 0:
-                log.write(f"✅ SENT via SMS: {phone_number}\n")
-            else:
-                log.write(f"❌ FAILED: {phone_number} - {sms_result.stderr}\n")
-
-        time.sleep(2)
-
-print(f"All messages processed. Log saved to {log_file}")
+print(f"✅ All messages processed. Log saved to: {log_path}")
